@@ -1,0 +1,35 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: keel
+  namespace: argocd
+spec:
+  sourceRepos:
+  - git://keel-git.keel-system.svc.cluster.local/platform.git
+  destinations:
+  - server: https://kubernetes.default.svc
+    namespace: keel-apps
+  namespaceResourceWhitelist:
+  - group: apps
+    kind: Deployment
+  - group: ''
+    kind: Service
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: $service_name
+  namespace: argocd
+spec:
+  project: keel
+  source:
+    repoURL: git://keel-git.keel-system.svc.cluster.local/platform.git
+    targetRevision: main
+    path: $service_name
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: keel-apps
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -1,0 +1,6 @@
+{
+  "argocd_url": "https://raw.githubusercontent.com/argoproj/argo-cd/c9c369efcc5b2a0bd720803f8d14a1c3eaddf579/manifests/install.yaml",
+  "argocd_sha256": "7efe2d6bbc03f63623640f1e4198f16c84009d510fb810ef71e56df1b7614ba9",
+  "cilium_chart_url": "https://helm.cilium.io/cilium-1.20.2.tgz",
+  "cilium_chart_sha256": "b2afd87b7f75f875f92a14559f14f59b7babbb479d968e3fd625a20bf30ec20e"
+}

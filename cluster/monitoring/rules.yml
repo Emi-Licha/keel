@@ -1,0 +1,20 @@
+groups:
+- name: keel-availability
+  rules:
+  - record: keel:error_ratio:rate30s
+    expr: sum by(job) (rate(http_requests_total{route="/",status=~"5.."}[30s])) /
+      clamp_min(sum by(job) (rate(http_requests_total{route="/"}[30s])), 0.001)
+  - alert: KeelAvailabilityBudgetBurn
+    expr: keel:error_ratio:rate30s > 0.01
+    for: 10s
+    labels:
+      severity: warning
+      scope: local-exercise
+    annotations:
+      summary: Application error ratio exceeds the 99% availability objective
+      runbook: docs/recovery.md
+  - alert: KeelScrapeMissing
+    expr: up == 0
+    for: 15s
+    labels:
+      severity: warning

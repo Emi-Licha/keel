@@ -1,0 +1,85 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: git-data
+  namespace: keel-system
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keel-git
+  namespace: keel-system
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: keel-git
+  template:
+    metadata:
+      labels:
+        app: keel-git
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: git
+        image: $image
+        ports:
+        - containerPort: 9418
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        imagePullPolicy: Never
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - test -d /repos/platform.git || git init --bare /repos/platform.git; git
+          -C /repos/platform.git config receive.denyNonFastForwards true; exec git
+          daemon --reuseaddr --base-path=/repos --export-all --disable=receive-pack
+          --listen=0.0.0.0 /repos
+        readinessProbe:
+          tcpSocket:
+            port: 9418
+        volumeMounts:
+        - name: repos
+          mountPath: /repos
+      volumes:
+      - name: repos
+        persistentVolumeClaim:
+          claimName: git-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keel-git
+  namespace: keel-system
+spec:
+  selector:
+    app: keel-git
+  ports:
+  - port: 9418
+    targetPort: 9418

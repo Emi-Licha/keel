@@ -1,0 +1,61 @@
+name: Verify Keel delivery
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  local-platform:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      KUBECONFIG: ${{ github.workspace }}/work/keel/kubeconfig
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - run: pip install --require-hashes -r requirements.txt
+      - uses: astral-sh/ruff-action@4919ec5cf1f49eff0871dbcea0da843445b837e6 # v3
+        with:
+          version: '0.16.6'
+          args: check scripts service tests
+      - run: python -m unittest discover -s tests -v
+      - uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4
+        with:
+          version: v1.37.0
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v4.2.4
+      - uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        with:
+          install_only: true
+          version: v0.33.0
+      - run: python scripts/dependencies.py
+      - name: Bootstrap and repeat without overwriting sources
+        run: |
+          python scripts/demo.py up --service payments
+          python scripts/demo.py up --service payments
+          python scripts/demo.py up --service orders
+      - name: Verify recovery and network boundaries
+        run: |
+          python scripts/demo.py exercise --service payments
+          python scripts/demo.py verify --service orders
+          python tests/integration.py
+      - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567
+        with:
+          version: v0.74.0
+      - name: Scan dependencies, secrets and built images
+        run: |
+          trivy fs --scanners vuln,secret --skip-dirs work --severity HIGH,CRITICAL --exit-code 1 --format json --output work/security-source.json .
+          for workload in 'keel-apps payments' 'keel-system keel-git'; do
+            read -r namespace deployment <<< "$workload"
+            image=$(kubectl --context kind-keel-local -n "$namespace" get deployment "$deployment" -o jsonpath='{.spec.template.spec.containers[0].image}')
+            trivy image --image-src docker --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --format json --output "work/security-$deployment.json" "$image"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: local-verification
+          path: |
+            work/keel/reports/
+            work/security-*.json
+          if-no-files-found: warn
