@@ -33,7 +33,10 @@ jobs:
       - name: Bootstrap and repeat without overwriting sources
         run: |
           python scripts/demo.py up --service payments
+          echo '# CI preservation check' >> work/services/payments/service/app.py
+          find work/services/payments -type f -exec sha256sum {} + | sort > work/source-before.sha256
           python scripts/demo.py up --service payments
+          sha256sum --check work/source-before.sha256
           python scripts/demo.py up --service orders
       - name: Verify recovery and network boundaries
         run: |

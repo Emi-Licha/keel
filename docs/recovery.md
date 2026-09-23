@@ -21,3 +21,5 @@ git -C work/keel/gitops log -5 --oneline
 Do not use imperative rollout undo with automated reconciliation. Recover desired state in Git. Dirty working copies are rejected so the CLI cannot silently include manual edits in its next deployment.
 
 If a bootstrap stage fails, fix the reported cause and re-run `up`. When there are uncommitted generated changes, inspect them first; the CLI preserves them rather than discarding them. Generated source is never overwritten by repeated bootstrap.
+
+Cluster ownership is tied to the workspace and the kind control-plane container ID. A missing or mismatched ownership record blocks reuse and deletion. Older records without a container ID also fail closed; do not bypass this check by creating a marker file. Inspect the cluster before any manual cleanup.

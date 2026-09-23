@@ -3,6 +3,7 @@ import argparse
 import json
 import re
 import shutil
+import shlex
 from pathlib import Path
 from string import Template
 
@@ -27,7 +28,7 @@ def generate(name, owner, output):
         path.write_text(Template(path.read_text()).substitute(service_name=name, owner=owner, image=f"keel/{name}:v1"))
     (output / "README.md").write_text(f"# {name}\n\nOwner: {owner}.\n\n"
         "Deploy from the Keel repository with:\n\n"
-        f"`python scripts/demo.py up --service-dir {output}`\n")
+        f"`python scripts/demo.py up --service-dir {shlex.quote(str(output))}`\n")
     return output
 
 

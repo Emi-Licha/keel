@@ -117,12 +117,23 @@ def read_service_registry():
     return json.loads(path.read_text()) if path.exists() else {"services": {}}
 
 
+def cluster_identity():
+    return {"cluster": CLUSTER, "workspace": str(ROOT),
+            "node_id": run("docker", "inspect", "--format", "{{.Id}}", CLUSTER + "-control-plane")}
+
+
+def verify_cluster_ownership():
+    marker = WORK / "managed.json"
+    require(marker.exists() and KUBECONFIG.exists(), "No local cluster ownership record.")
+    require(json.loads(marker.read_text()) == cluster_identity(), "Cluster ownership mismatch; refusing operation.")
+
+
 def read_service_metadata(directory):
     directory = directory.resolve()
     meta = json.loads((directory / "keel.json").read_text())
     require(meta.get("schema_version") == 1, "Unsupported service contract version.")
     for key in ("name", "owner"):
-        require(re.fullmatch(r"[a-z][a-z0-9-]{1,38}[a-z0-9]", meta[key]), f"Invalid {key}")
+        validate_identifier(meta[key])
     require((directory / "service" / "Dockerfile").is_file(), "Service Dockerfile is missing.")
     require((directory / "deploy/deployment.yaml").is_file(), "Generate a service with the current YAML template.")
     return meta
@@ -223,15 +234,13 @@ def bootstrap_platform(service_dir):
         meta = read_service_metadata(service_dir)
         name = meta["name"]
         clusters = run("kind", "get", "clusters").splitlines()
-        marker = WORK / "managed.json"
         if CLUSTER in clusters:
-            require(marker.exists() and KUBECONFIG.exists(), "Refusing to adopt an unmanaged cluster.")
-        else:
-            save(marker, {"cluster": CLUSTER, "workspace": str(ROOT)})
+            verify_cluster_ownership()
     with stage("cluster and policy enforcement"):
         if CLUSTER not in clusters:
             run("kind", "create", "cluster", "--name", CLUSTER,
                 "--config", str(ROOT / "cluster/kind.yaml"), "--kubeconfig", str(KUBECONFIG), timeout=240)
+            save(WORK / "managed.json", cluster_identity())
         # Kept in the workspace; reproducible chart checksum is checked before installation.
         chart = ROOT / "work/vendor/cilium-1.20.2.tgz"
         require(chart.exists(), "Run python3 scripts/dependencies.py first.")
@@ -261,12 +270,12 @@ def bootstrap_platform(service_dir):
         current = read_service_registry()
         tag = build_service_image(service_dir, name, "v1")
         target = REPO / name
-        target.mkdir(exist_ok=True)
-        shutil.copytree(service_dir / "deploy", target, dirs_exist_ok=True)
+        git("rm", "-r", "--ignore-unmatch", "--", name)
+        shutil.copytree(service_dir / "deploy", target)
         set_deployment_image(target / "deployment.yaml", tag)
         revision = commit("Deploy " + name)
         git("push", "origin", "main")
-        current["services"][name] = {"source": str(service_dir.resolve()), "image": tag}
+        current["services"][name] = {"source": str(service_dir.resolve())}
         save(WORK / "state.json", current)
     with stage("Argo CD reconciliation"):
         manifest = ROOT / "work/vendor/argocd.yaml"
@@ -312,7 +321,7 @@ def drive_alert(name, should_fire, expected_status):
                 code, _ = request(app)
                 require(code == expected_status, f"Expected HTTP {expected_status}, received {code}")
             require(request(app, "/healthz")[0] == 200, "Process health unexpectedly failed.")
-            values = query_prometheus(prom, f'ALERTS{{alertname="KeelAvailabilityBudgetBurn",job="{name}",alertstate="firing"}}')
+            values = query_prometheus(prom, f'ALERTS{{alertname="KeelHighErrorRate",job="{name}",alertstate="firing"}}')
             if bool(values) == should_fire:
                 return
             time.sleep(2)
@@ -398,8 +407,10 @@ def main():
         REPORT = Report(args.action)
         try:
             if args.action == "up":
-                directory = args.service_dir or ROOT / "work/services" / args.service
-                if args.service_dir is None and not directory.exists():
+                registered = read_service_registry()["services"].get(args.service)
+                directory = args.service_dir or (Path(registered["source"]) if registered
+                                                 else ROOT / "work/services" / args.service)
+                if args.service_dir is None and not registered and not directory.exists():
                     generate(args.service, "platform-team", directory)
                 bootstrap_platform(directory)
             elif args.action == "verify":
@@ -410,8 +421,9 @@ def main():
                 print(kube("get", "pods", "-A"))
             elif args.action == "down":
                 require(args.confirm_cluster == CLUSTER, "Use --confirm-cluster keel-local.")
-                require((WORK / "managed.json").exists(), "No local ownership record.")
+                verify_cluster_ownership()
                 run("kind", "delete", "cluster", "--name", CLUSTER, timeout=120)
+                (WORK / "managed.json").unlink()
                 print("Removed the dedicated cluster. Sources, Git history and reports are retained.")
         except BaseException as error:
             REPORT.finish(error)

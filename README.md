@@ -45,7 +45,7 @@ python scripts/demo.py verify --service payments
 python scripts/demo.py exercise --service payments
 ```
 
-Run the scaffold command once: it refuses to overwrite existing work. Repeating `up` uses the same generated source and reapplies the desired platform state. The shorter `up --service orders` generates a default-owned service when it does not exist and deploys it through the same path.
+Run the scaffold command once: it refuses to overwrite existing work. After registration, `up --service payments` reuses the recorded source directory; use `--service-dir` to select another source explicitly. The shorter `up --service orders` generates a default-owned service when none is registered and deploys it through the same path.
 
 Each execution writes a unique JSON report under `work/keel/reports/`. Failed commands retain their failed stages and cluster diagnostics. See the [recovery walkthrough](docs/recovery.md) for the checks and troubleshooting commands.
 

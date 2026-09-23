@@ -1,4 +1,4 @@
-"""Run explicitly against the managed local cluster after bootstrap."""
+"""Integration tests for keel-local with payments deployed."""
 import sys
 import unittest
 import uuid
